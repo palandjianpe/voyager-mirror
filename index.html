@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Voyager Mirror</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="stage">
+    <div id="camLayer"></div>
+    <canvas id="gl"></canvas>
+    <canvas id="pip" width="200" height="150"></canvas>
+    <div id="hint" hidden></div>
+
+    <div id="topbar" class="ui">
+      <div class="seg" role="tablist" aria-label="Mode">
+        <button data-mode="puppet" class="on">Puppet</button>
+        <button data-mode="overlay">Overlay</button>
+      </div>
+      <div class="seg" role="tablist" aria-label="Framing">
+        <button data-frame="full" class="on">Full body</button>
+        <button data-frame="upper">Upper body</button>
+      </div>
+      <button id="btnSettings" class="chip">Settings</button>
+    </div>
+
+    <div id="rec" hidden><span class="dot"></span><span id="recTime">0:00</span></div>
+
+    <div id="bottombar" class="ui">
+      <button class="big" data-panel="dress"><span class="ico ico-dress"></span>Dress up</button>
+      <button class="big" data-panel="scene" id="btnScene"><span class="ico ico-scene"></span>Scene</button>
+      <button class="big" id="btnPhoto"><span class="ico ico-photo"></span>Photo</button>
+      <button class="big" id="btnRecord"><span class="ico ico-rec"></span><span id="recLabel">Record</span></button>
+      <button class="big on" id="btnFx"><span class="ico ico-fx"></span>Effects</button>
+    </div>
+
+    <div id="panel-dress" class="panel" hidden></div>
+    <div id="panel-scene" class="panel" hidden></div>
+    <div id="panel-fx" class="panel" hidden></div>
+    <div id="panel-settings" class="panel" hidden>
+      <h2>Settings</h2>
+      <label class="row">Camera <select id="camSelect"></select></label>
+      <div class="row"><button id="btnFile" class="chip">Use a video or photo file</button><input id="fileInput" type="file" accept="video/*,image/*" hidden /></div>
+      <label class="row check"><input type="checkbox" id="chkPip" checked /> Show the small camera preview in puppet mode</label>
+      <div class="row"><button id="btnFull" class="chip">Full screen</button></div>
+      <p class="fine" id="stats"></p>
+      <p class="fine">The camera picture stays on this computer. Nothing is uploaded.</p>
+    </div>
+
+    <div id="start">
+      <div class="card">
+        <h1>Voyager Mirror</h1>
+        <p>Stand back so the camera can see you from head to toe, then move, wave and make faces.</p>
+        <button id="btnStart" class="go" disabled>Loading</button>
+        <button id="btnStartFile" class="chip">Use a video or photo file</button>
+        <p class="fine" id="startMsg">The camera picture stays on this computer. Nothing is uploaded.</p>
+      </div>
+    </div>
+    <div id="flash"></div>
+    <div id="toast" hidden></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
