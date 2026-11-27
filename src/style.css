@@ -106,13 +106,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; }
 @media (max-width: 480px) {
   .seg button { padding: 8px 13px; font-size: 14px; }
   .chip { padding: 8px 12px; font-size: 13px; }
-  #pip { width: 96px; top: 64px; right: 10px; }
+  /* The top bar wraps to two rows on phones, so the preview and hint sit below it. */
+  #pip { width: 96px; top: calc(max(12px, env(safe-area-inset-top)) + 108px); right: 10px; }
   .ico { width: 24px; height: 24px; }
   .ico-photo { border-width: 5px; }
   .big { padding: 8px 2px 7px; border-radius: 16px; }
   .panel { bottom: 88px; padding: 14px; }
   .sw { width: 36px; height: 36px; }
-  #hint { font-size: 14px; top: 64px; }
+  #hint { font-size: 14px; top: calc(max(12px, env(safe-area-inset-top)) + 108px); }
   #toast { bottom: 98px; }
 }
 @media (max-height: 480px) {

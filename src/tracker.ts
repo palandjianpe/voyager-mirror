@@ -31,6 +31,8 @@ export interface TrackState {
   face: FaceState;
   /** Mirrored head rotation from the face model. */
   headQuat: Quaternion;
+  /** Where the face sits in the picture: centre and width in normalized image coordinates (not mirrored). */
+  faceBox: { x: number; y: number; w: number };
   frameW: number; frameH: number;
 }
 
@@ -100,6 +102,7 @@ export class Tracker {
     world: Array.from({ length: 33 }, () => new Vector3()),
     face: neutralFace(),
     headQuat: new Quaternion(),
+    faceBox: { x: 0.5, y: 0.5, w: 0 },
     frameW: 1280, frameH: 720,
   };
   ready = false;
@@ -181,6 +184,7 @@ export class Tracker {
     // When the body is in view the face is usually small in the frame, so the
     // face model gets a zoomed crop around the head instead of the whole picture.
     let faceSrc: FrameSource = src;
+    let crop: { x: number; y: number; s: number } | null = null;
     const headSeen = s.hasPose && s.vis[LM.nose] > 0.5;
     if (headSeen) {
       const eL = s.lm2d[LM.earL], eR = s.lm2d[LM.earR], n = s.lm2d[LM.nose];
@@ -197,7 +201,7 @@ export class Tracker {
       this.faceCtx.fillStyle = '#000';
       this.faceCtx.fillRect(0, 0, cw, cw);
       this.faceCtx.drawImage(src, c.x - c.s / 2, c.y - c.s / 2, c.s, c.s, 0, 0, cw, cw);
-      faceSrc = this.faceCanvas;
+      faceSrc = this.faceCanvas; crop = c;
     } else {
       this.crop.s = 0;
     }
@@ -222,6 +226,15 @@ export class Tracker {
       this.rawQuat.setFromRotationMatrix(this.m4);
       // Mirror the rotation across the vertical plane.
       this.rawQuat.set(this.rawQuat.x, -this.rawQuat.y, -this.rawQuat.z, this.rawQuat.w);
+      // Face outline in picture coordinates, undoing the zoomed crop when one was used.
+      let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+      for (const pt of fr.faceLandmarks[0] ?? []) { x0 = Math.min(x0, pt.x); x1 = Math.max(x1, pt.x); y0 = Math.min(y0, pt.y); y1 = Math.max(y1, pt.y); }
+      if (x1 > x0) {
+        let cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, fw = x1 - x0;
+        if (crop) { cx = (crop.x - crop.s / 2 + cx * crop.s) / w; cy = (crop.y - crop.s / 2 + cy * crop.s) / h; fw = (fw * crop.s) / w; }
+        const fb = s.faceBox, k = fb.w === 0 || !s.hasFace ? 1 : 0.5;
+        fb.x += (cx - fb.x) * k; fb.y += (cy - fb.y) * k; fb.w += (fw - fb.w) * k;
+      }
       s.hasFace = true; this.faceMisses = 0;
     } else if (++this.faceMisses > 10) {
       s.hasFace = false;
