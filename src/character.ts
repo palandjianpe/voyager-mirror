@@ -181,6 +181,51 @@ function abaloneTexture() {
   });
 }
 
+/**
+ * Oar blade face: light pine with vertical grain, painted with three stacked
+ * ocean-blue waves across the wide part. Canvas top is the blade tip.
+ */
+function oarBladeTexture() {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  return canvasTex(256, 512, 1, true, (g) => {
+    g.fillStyle = '#ddb07a'; g.fillRect(0, 0, 256, 512);
+    // Grain: long wavering streaks, a few darker, a few lighter.
+    for (let i = 0; i < 70; i++) {
+      const dark = rnd() < 0.55;
+      g.strokeStyle = dark ? '#b98650' : '#f0cf9c'; g.globalAlpha = 0.25 + rnd() * 0.35; g.lineWidth = 0.8 + rnd() * 2.6;
+      const x0 = rnd() * 256, amp = 1 + rnd() * 3, f = 0.006 + rnd() * 0.01, ph = rnd() * 6;
+      g.beginPath();
+      for (let y = -4; y <= 516; y += 8) g.lineTo(x0 + Math.sin(y * f + ph) * amp, y);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    // Three hand-painted waves, slightly uneven like a brush stroke.
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    const rows = [150, 205, 260];
+    rows.forEach((y0, r) => {
+      g.strokeStyle = '#1c4f7c'; g.lineWidth = 15 - r;
+      g.beginPath();
+      for (let x = 34; x <= 222; x += 3) {
+        const t = (x - 34) / 188;
+        g.lineTo(x, y0 + Math.sin(t * Math.PI * 3 + r * 0.6) * 17 * (1 - 0.1 * r));
+      }
+      g.stroke();
+    });
+    // A thin lighter highlight along each wave for a painted, slightly worn look.
+    g.globalAlpha = 0.35; g.strokeStyle = '#3d7fb0'; g.lineWidth = 3;
+    rows.forEach((y0, r) => {
+      g.beginPath();
+      for (let x = 38; x <= 218; x += 3) {
+        const t = (x - 34) / 188;
+        g.lineTo(x, y0 - 3 + Math.sin(t * Math.PI * 3 + r * 0.6) * 17 * (1 - 0.1 * r));
+      }
+      g.stroke();
+    });
+    g.globalAlpha = 1;
+  });
+}
+
 /** Grass underskirt: straw strands with a ragged fringe. Canvas top is the waist. */
 function grassTexture() {
   let seed = 7;
@@ -666,25 +711,40 @@ export class Character {
     this.group.add(this.head, this.chainRoot);
   }
 
-  /** A carved wooden paddle. Its origin is the spot her hand grips. */
+  /**
+   * A carved wooden paddle with a broad teardrop blade, painted with stacked waves.
+   * Its origin is the spot her hand grips.
+   */
   private buildOar() {
     const oar = new THREE.Group(), len = 1.85, grip = 0.32;
-    const wood = toon('#c48d52'), pale = toon('#d4a265');
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.019, len, 12), wood);
-    shaft.position.y = len * (0.5 - grip);
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), wood);
-    knob.scale.set(1, 1.3, 1); knob.position.y = -len * grip;
+    const wood = toon('#c48d52'), pale = toon('#d9ab70');
+    // Blade: narrow neck at the shaft, swelling to a wide rounded tip.
+    const H = 0.6, W = 0.14;
     const sh = new THREE.Shape();
     sh.moveTo(0, 0);
-    sh.quadraticCurveTo(0.1, 0.16, 0.088, 0.42); sh.quadraticCurveTo(0.075, 0.6, 0, 0.66);
-    sh.quadraticCurveTo(-0.075, 0.6, -0.088, 0.42); sh.quadraticCurveTo(-0.1, 0.16, 0, 0);
-    const bladeG = new THREE.ExtrudeGeometry(sh, { depth: 0.014, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.006, bevelSegments: 2, curveSegments: 16 });
+    sh.bezierCurveTo(0.05, 0.035, 0.135, 0.19, 0.132, 0.37);
+    sh.bezierCurveTo(0.128, 0.52, 0.07, H, 0, H);
+    sh.bezierCurveTo(-0.07, H, -0.128, 0.52, -0.132, 0.37);
+    sh.bezierCurveTo(-0.135, 0.19, -0.05, 0.035, 0, 0);
+    const bladeG = new THREE.ExtrudeGeometry(sh, { depth: 0.014, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.006, bevelSegments: 2, curveSegments: 24 });
     bladeG.translate(0, 0, -0.007);
-    const blade = new THREE.Mesh(bladeG, pale);
-    blade.position.y = len * (1 - grip) - 0.66;
-    const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, 0.5, 8), wood);
-    rib.position.set(0, blade.position.y + 0.25, 0.012);
-    oar.add(shaft, knob, blade, rib);
+    // Map the flat faces onto the painted texture: u across the blade, v from neck to tip.
+    const pos = bladeG.attributes.position, uv = bladeG.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (pos.getX(i) + W) / (2 * W), pos.getY(i) / H);
+    const face = toon('#ffffff', { map: oarBladeTexture() });
+    const blade = new THREE.Mesh(bladeG, [face, pale]); // group 0 = faces, group 1 = edges
+    const bladeBase = len * (1 - grip) - H;
+    blade.position.y = bladeBase;
+    // The shaft stops at the neck so it doesn't poke through the painting,
+    // then a short tapered spine blends it into the blade.
+    const top = bladeBase + 0.06, bottom = -len * grip;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.019, top - bottom, 12), wood);
+    shaft.position.y = (top + bottom) / 2;
+    const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.016, 0.1, 10), wood);
+    spine.scale.z = 0.95; spine.position.y = top + 0.05;
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), wood);
+    knob.scale.set(1, 1.3, 1); knob.position.y = bottom;
+    oar.add(shaft, spine, knob, blade);
     return oar;
   }
 
