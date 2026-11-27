@@ -21,6 +21,7 @@
       <div class="seg" role="tablist" aria-label="Framing">
         <button data-frame="full" class="on">Full body</button>
         <button data-frame="upper">Upper body</button>
+        <button data-frame="face">Face</button>
       </div>
       <button id="btnSettings" class="chip">Settings</button>
     </div>
@@ -42,7 +43,7 @@
       <h2>Settings</h2>
       <label class="row">Camera <select id="camSelect"></select></label>
       <div class="row"><button id="btnFile" class="chip">Use a video or photo file</button><input id="fileInput" type="file" accept="video/*,image/*" hidden /></div>
-      <label class="row check"><input type="checkbox" id="chkPip" checked /> Show the small camera preview in puppet mode</label>
+      <label class="row check"><input type="checkbox" id="chkPip" checked /> Show the small video of me (puppet mode, off on phones at first)</label>
       <div class="row"><button id="btnFull" class="chip">Full screen</button></div>
       <p class="fine" id="stats"></p>
       <p class="fine">The camera picture stays on this computer. Nothing is uploaded.</p>

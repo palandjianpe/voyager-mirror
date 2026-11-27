@@ -9,7 +9,7 @@ import { Capture } from './capture';
 import { buildDressPanel, buildScenePanel, buildEffectsPanel, loadLook } from './ui';
 
 type Mode = 'puppet' | 'overlay';
-type Framing = 'full' | 'upper';
+type Framing = 'full' | 'upper' | 'face';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const params = new URLSearchParams(location.search);
 const store = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } } };
@@ -39,14 +39,24 @@ const pose = makePose();
 
 // ---------------------------------------------------------------- state
 let mode: Mode = (params.get('mode') as Mode) || (store.get('vm-mode') as Mode) || 'puppet';
-let framing: Framing = ((params.get('frame') || store.get('vm-frame')) === 'upper') ? 'upper' : 'full';
+const savedFrame = params.get('frame') || store.get('vm-frame');
+let framing: Framing = savedFrame === 'upper' || savedFrame === 'face' ? savedFrame : 'full';
 let source: FrameSource | null = null;
 let srcW = 0, srcH = 0, lastVideoTime = -1, stream: MediaStream | null = null;
-let stageW = 1, stageH = 1, started = false, showPip = store.get('vm-pip') !== '0';
+let stageW = 1, stageH = 1, started = false, showPip = pipDefault();
+/** The camera preview starts hidden on phones, where it covers too much of a small screen. A saved choice wins. */
+function pipDefault() {
+  const saved = store.get('vm-pip');
+  if (saved !== null) return saved !== '0';
+  return !window.matchMedia('(max-width: 600px), (max-height: 600px)').matches;
+}
 const camLayer = $('camLayer'), pip = $<HTMLCanvasElement>('pip'), pipCtx = pip.getContext('2d')!;
 const hint = $('hint');
 
 const capture = new Capture(glCanvas, () => ({ el: source, w: srcW, h: srcH, visible: mode === 'overlay' }), toast);
+
+let faceDist = 1;
+const camAim = new THREE.Vector3();
 
 function resize() {
   stageW = window.innerWidth; stageH = window.innerHeight;
@@ -55,10 +65,12 @@ function resize() {
   persp.aspect = aspect;
   // Full body keeps the whole character in view, with room to raise her arms and step sideways.
   // Upper body frames her from the hips up, for when you sit close to the camera.
+  // Face frames just her head and shoulders, for holding the phone up close; the frame loop keeps it centered on her head.
   const tan = Math.tan(THREE.MathUtils.degToRad(persp.fov / 2));
-  const [h, w, cy] = framing === 'upper' ? [1.6, 1.5, 1.36] : [2.9, 2.3, 1.02];
+  const [h, w, cy] = framing === 'face' ? [0.82, 0.72, 1.55] : framing === 'upper' ? [1.6, 1.5, 1.36] : [2.9, 2.3, 1.02];
   const dist = Math.max(h / (2 * tan), w / (2 * tan * aspect));
-  persp.position.set(0, cy + 0.1, dist); persp.lookAt(0, cy, 0);
+  faceDist = dist; camAim.set(0, cy, 0);
+  persp.position.set(0, cy + (framing === 'face' ? 0.03 : 0.1), dist); persp.lookAt(0, cy, 0);
   persp.updateProjectionMatrix();
   ortho.left = -aspect; ortho.right = aspect; ortho.updateProjectionMatrix();
 }
@@ -243,20 +255,25 @@ function frame(now: number) {
   // pose
   let visible = true;
   if (mode === 'puppet') {
-    rig.puppet(s, pose, dt, t);
+    if (framing === 'face') rig.puppetFace(s, pose, dt, t); else rig.puppet(s, pose, dt, t);
     actor.position.y = backdrop.bobY; actor.rotation.z = backdrop.bobRoll;
     backdrop.shadow.position.x = pose.hipC.x;
     const lift = Math.max(0, Math.min(pose.ankleL.y, pose.ankleR.y) - 0.07);
     backdrop.shadow.scale.set(Math.max(0.3, 0.95 - lift), Math.max(0.2, 0.55 - lift * 0.6), 1);
     backdrop.shadow.position.y = 0.012 + backdrop.bobY;
   } else {
-    visible = srcW > 0 && rig.overlay(s, pose, mapToStage, dt);
-    if (framing === 'upper') pose.legsVisible = false;
+    visible = srcW > 0 && (framing === 'face' ? rig.overlayFace(s, pose, mapToStage, dt, t) : rig.overlay(s, pose, mapToStage, dt));
+    if (framing !== 'full') pose.legsVisible = false;
+  }
+  // Face framing: the camera glides along with her head.
+  if (mode === 'puppet' && framing === 'face') {
+    camAim.lerp(new THREE.Vector3(pose.headC.x, pose.headC.y + backdrop.bobY - 0.08, 0), Math.min(1, dt * 6));
+    persp.position.set(camAim.x, camAim.y + 0.03, faceDist); persp.lookAt(camAim);
   }
   character.group.visible = visible;
   if (visible) character.apply(pose, face, dt);
   effects.update(dt, visible ? pose : null, rig, {
-    face: s.hasFace ? s.face : null, mode, upper: framing === 'upper', scene: backdrop.name, seaY: backdrop.seaY, seaFx: backdrop.seaFx, sand: backdrop.sand,
+    face: s.hasFace ? s.face : null, mode, upper: framing !== 'full', scene: backdrop.name, seaY: backdrop.seaY, seaFx: backdrop.seaFx, sand: backdrop.sand,
     camera: mode === 'puppet' ? persp : ortho, viewportH: stageH,
   });
   backdrop.update(t);
@@ -272,7 +289,8 @@ function frame(now: number) {
     pipCtx.save(); pipCtx.translate(pip.width, 0); pipCtx.scale(-1, 1); pipCtx.drawImage(source, 0, 0, pip.width, pip.height); pipCtx.restore();
   }
   if (started) {
-    const msg = !tracker.ready ? '' : framing === 'upper' ? (!s.hasPose ? 'Move into view so I can see your head and shoulders' : '')
+    const msg = !tracker.ready ? '' : framing === 'face' ? (!s.hasFace ? 'Hold the phone so I can see your face' : '')
+      : framing === 'upper' ? (!s.hasPose ? 'Move into view so I can see your head and shoulders' : '')
       : !s.hasPose ? 'Step back so I can see you' : !rig.legsSeen ? 'Step back a bit more to show your legs' : '';
     if (hint.textContent !== msg) hint.textContent = msg;
     hint.hidden = msg === '';

@@ -181,6 +181,33 @@ export class Rig {
     p.k = 1; p.headScale = 1; p.legsVisible = true;
   }
 
+  // -------------------------------------------------------------- face
+  /**
+   * Face only, for holding the phone up close. The body may be out of view, so she
+   * stands relaxed and breathing while her head and expressions follow your face.
+   */
+  puppetFace(s: TrackState, p: Pose, dt: number, time: number) {
+    this.idle(s, p, dt, time);
+  }
+
+  /** Face only in overlay mode: her head sits on your face, shoulders scaled to match. */
+  overlayFace(s: TrackState, p: Pose, map: MapFn, dt: number, time: number): boolean {
+    if (!s.hasFace || s.faceBox.w <= 0) return false;
+    const fb = s.faceBox;
+    map(fb.x - fb.w / 2, fb.y, a); map(fb.x + fb.w / 2, fb.y, b);
+    const faceW = a.distanceTo(b);
+    map(fb.x, fb.y, c);
+    this.idle(s, p, dt, time);
+    const headR = faceW * 0.66, k = headR / P.headR;
+    // Move the relaxed body so her head lands on the face, scaled to its size.
+    const from = p.headC.clone();
+    const to = c.clone(); to.y += headR * 0.1; to.z = 0;
+    for (const key of ['hipC', 'hipL', 'hipR', 'shC', 'shL', 'shR', 'elbowL', 'elbowR', 'wristL', 'wristR', 'handL', 'handR',
+      'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'headC'] as const) p[key].sub(from).multiplyScalar(k).add(to);
+    p.k = k; p.headScale = k; p.legsVisible = false;
+    return true;
+  }
+
   // ------------------------------------------------------------ overlay
   /** Returns false when there is nobody to dress up. */
   overlay(s: TrackState, p: Pose, map: MapFn, dt: number): boolean {
