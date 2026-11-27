@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { FaceState } from './tracker';
 
-export type HairStyle = 'waves' | 'puffs' | 'long' | 'ponytail' | 'braids' | 'bob';
+export type HairStyle = 'waves' | 'cards' | 'puffs' | 'long' | 'ponytail' | 'braids' | 'bob';
 export type Outfit = 'voyager' | 'dress' | 'shorts';
 export type Accessory = 'none' | 'flower' | 'starfish' | 'bow';
 export type Prop = 'oar' | 'none';
@@ -289,13 +289,16 @@ function scalpTexture() {
  */
 class HairClumps {
   readonly mesh: THREE.Mesh;
+  /** Optional hair cards: a curved, see-through strip of strands over the outside of each lock. */
+  readonly cards: THREE.Mesh | null = null;
   private pos: Float32Array; private nrm: Float32Array;
-  private clumps: { a: number; w: number; depth: number; phase: number; amp: number; freq: number; r0: number; flat: number; len: number }[] = [];
-  private ctrl: THREE.Vector3[] = []; private ctr: THREE.Vector3[] = []; private side: THREE.Vector3[] = [];
+  private cPos: Float32Array | null = null; private cNrm: Float32Array | null = null;
+  private clumps: { a: number; w: number; depth: number; phase: number; amp: number; freq: number; r0: number; flat: number; len: number; flip: boolean }[] = [];
+  private ctrl: THREE.Vector3[] = []; private ctr: THREE.Vector3[] = []; private side: THREE.Vector3[] = []; private out: THREE.Vector3[] = [];
   private inv = new THREE.Quaternion(); private loc = new THREE.Vector3();
   private static readonly S = 30; private static readonly M = 8;
 
-  constructor(guides: number, count: number, mat: THREE.Material) {
+  constructor(guides: number, count: number, mat: THREE.Material, cardMat: THREE.Material | null = null) {
     let seed = 11;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let k = 0; k < count; k++) {
@@ -304,11 +307,12 @@ class HairClumps {
         // Neighbouring locks share nearly the same wave, so the hair flows instead of tangling.
         a, w: f - a, depth: ((k % 3) - 1) * 0.09 + (rnd() - 0.5) * 0.05, phase: k * 0.35 + rnd() * 0.5,
         amp: 0.07 + rnd() * 0.04, freq: 1.5 + rnd() * 0.3, r0: 0.25 + rnd() * 0.06, flat: 0.36 + rnd() * 0.08, len: 0.85 + rnd() * 0.15,
+        flip: rnd() < 0.5,
       });
     }
     const S = HairClumps.S, M = HairClumps.M, per = S * (M + 1), n = count * per;
     for (let i = 0; i < 12; i++) this.ctrl.push(new THREE.Vector3());
-    for (let i = 0; i < S; i++) { this.ctr.push(new THREE.Vector3()); this.side.push(new THREE.Vector3()); }
+    for (let i = 0; i < S; i++) { this.ctr.push(new THREE.Vector3()); this.side.push(new THREE.Vector3()); this.out.push(new THREE.Vector3()); }
     this.pos = new Float32Array(n * 3); this.nrm = new Float32Array(n * 3);
     const uv = new Float32Array(n * 2), idx: number[] = [];
     for (let c = 0; c < count; c++) for (let s = 0; s < S; s++) for (let m = 0; m <= M; m++) {
@@ -323,6 +327,27 @@ class HairClumps {
     g.setIndex(idx);
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.frustumCulled = false;
+
+    if (cardMat) {
+      // Three columns across each card (left, middle, right) so it can curve around the lock.
+      const cn = count * S * 3, cuv = new Float32Array(cn * 2), cidx: number[] = [];
+      this.cPos = new Float32Array(cn * 3); this.cNrm = new Float32Array(cn * 3);
+      this.clumps.forEach((c, ci) => {
+        for (let s2 = 0; s2 < S; s2++) for (let k = 0; k < 3; k++) {
+          const i = (ci * S + s2) * 3 + k, u = k / 2;
+          cuv[i * 2] = c.flip ? 1 - u : u; cuv[i * 2 + 1] = 1 - s2 / (S - 1);
+          if (s2 < S - 1 && k < 2) { const j = i + 3; cidx.push(i, i + 1, j, i + 1, j + 1, j); }
+        }
+      });
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', new THREE.BufferAttribute(this.cPos, 3));
+      cg.setAttribute('normal', new THREE.BufferAttribute(this.cNrm, 3));
+      cg.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
+      cg.setIndex(cidx);
+      this.cards = new THREE.Mesh(cg, cardMat);
+      this.cards.frustumCulled = false;
+      this.cards.renderOrder = 1;
+    }
   }
 
   /** `R` is the current head radius, so overlay mode scales the hair with the person. */
@@ -331,7 +356,8 @@ class HairClumps {
     const S = HairClumps.S, M = HairClumps.M, pos = this.pos, nrm = this.nrm;
     const G = chains[0].pts.length, ctrl = this.ctrl, ctr = this.ctr, side = this.side;
     const T = tA, n1 = tB, n2 = tC, o = tD;
-    let v = 0;
+    let v = 0, cv = 0;
+    const cPos = this.cPos, cNrm = this.cNrm, nOut = new THREE.Vector3();
     for (const c of this.clumps) {
       const A = chains[c.a].pts, B = chains[c.a + 1].pts;
       for (let i = 0; i < G; i++) ctrl[i].lerpVectors(A[i], B[i], c.w);
@@ -348,6 +374,7 @@ class HairClumps {
         if (o.lengthSq() < 1e-8) o.set(0, 0, -1);
         o.normalize();
         side[s].set(o.z, 0, -o.x);
+        this.out[s].copy(o);
         const amp = c.amp * R * THREE.MathUtils.smoothstep(tt, 0, 0.3);
         const wv = c.phase + tt * c.freq * Math.PI * 2;
         q.addScaledVector(side[s], amp * Math.sin(wv)).addScaledVector(o, amp * 0.5 * Math.cos(wv) + c.depth * R);
@@ -383,11 +410,86 @@ class HairClumps {
           nrm[v * 3] = nx / nl; nrm[v * 3 + 1] = ny / nl; nrm[v * 3 + 2] = nz / nl;
           v++;
         }
+        if (cPos && cNrm) {
+          // The card lies over the outer face of the lock, a little wider than it, bowed outwards.
+          nOut.copy(n2); if (nOut.dot(this.out[s]) < 0) nOut.negate();
+          const W = c.r0 * R * 2.15 * (1 - 0.3 * tt), q = ctr[s];
+          for (let k = -1; k <= 1; k++) {
+            const lift = ry * 0.7 + (1 - k * k) * W * 0.12;
+            cPos[cv * 3] = q.x + n1.x * k * W * 0.5 + nOut.x * lift;
+            cPos[cv * 3 + 1] = q.y + n1.y * k * W * 0.5 + nOut.y * lift;
+            cPos[cv * 3 + 2] = q.z + n1.z * k * W * 0.5 + nOut.z * lift;
+            const nx = nOut.x + n1.x * k * 0.35, ny = nOut.y + n1.y * k * 0.35, nz = nOut.z + n1.z * k * 0.35;
+            const nl = Math.hypot(nx, ny, nz) || 1;
+            cNrm[cv * 3] = nx / nl; cNrm[cv * 3 + 1] = ny / nl; cNrm[cv * 3 + 2] = nz / nl;
+            cv++;
+          }
+        }
       }
     }
     (this.mesh.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (this.mesh.geometry.attributes.normal as THREE.BufferAttribute).needsUpdate = true;
+    if (this.cards) {
+      (this.cards.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      (this.cards.geometry.attributes.normal as THREE.BufferAttribute).needsUpdate = true;
+    }
   }
+}
+
+/**
+ * Strand cards that cover the top of the head: each starts at the hairline, sweeps back
+ * over the crown and ends low on the back of the head, where the hanging locks take over.
+ * They sit just outside the crown shape, so they follow the hair's volume.
+ */
+function scalpCards(R: number, mat: THREE.Material) {
+  const S2 = 18, N = 32, layers = 2, cols = 3;
+  const C = new THREE.Vector3(0, 0.2 * R, -0.36 * R), rad = new THREE.Vector3(1.1 * R, 1.15 * R, 1.08 * R);
+  // Distance from the head centre to the outside of the hair along direction d.
+  const surf = (d: THREE.Vector3) => {
+    const dx = d.x / rad.x, dy = d.y / rad.y, dz = d.z / rad.z, cx = -C.x / rad.x, cy = -C.y / rad.y, cz = -C.z / rad.z;
+    const a = dx * dx + dy * dy + dz * dz, b = 2 * (dx * cx + dy * cy + dz * cz), c = cx * cx + cy * cy + cz * cz - 1;
+    return Math.max((-b + Math.sqrt(Math.max(0, b * b - 4 * a * c))) / (2 * a), 1.07 * R);
+  };
+  const dir = (az: number, el: number) => new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  const n = layers * N * S2 * cols;
+  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv = new Float32Array(n * 2), idx: number[] = [];
+  const d = new THREE.Vector3(), prev = new THREE.Vector3(), next = new THREE.Vector3(), tan = new THREE.Vector3(), across = new THREE.Vector3();
+  let v = 0, seed = 21;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const at = (d0: THREE.Vector3, dm: THREE.Vector3, d1: THREE.Vector3, t: number, out: THREE.Vector3) =>
+    out.copy(d0).multiplyScalar((1 - t) ** 2).addScaledVector(dm, 2 * t * (1 - t)).addScaledVector(d1, t * t).normalize();
+  for (let L = 0; L < layers; L++) for (let i = 0; i < N; i++) {
+    const az0 = -1.2 + (2.4 * (i + 0.5 * L)) / (N - 1) + (rnd() - 0.5) * 0.05;
+    const el0 = 0.52 - 0.28 * Math.abs(az0);
+    const az1 = az0 === 0 ? Math.PI : Math.sign(az0) * (Math.PI - Math.abs(az0) * 0.85);
+    const d0 = dir(az0, el0), d1 = dir(az1, -0.7 + 0.12 * L), dm = d0.clone().add(d1).add(new THREE.Vector3(0, 1.4, 0)).normalize();
+    const flip = rnd() < 0.5, lift = (0.012 + 0.018 * L) * R, W0 = (0.46 + rnd() * 0.08) * R;
+    for (let s = 0; s < S2; s++) {
+      const t = s / (S2 - 1);
+      at(d0, dm, d1, t, d);
+      at(d0, dm, d1, Math.max(0, t - 0.02), prev); at(d0, dm, d1, Math.min(1, t + 0.02), next);
+      const r = surf(d) + lift;
+      tan.copy(next).multiplyScalar(surf(next)).sub(prev.clone().multiplyScalar(surf(prev))).normalize();
+      across.crossVectors(tan, d).normalize();
+      const W = W0 * (1 - 0.3 * t);
+      for (let k = 0; k < cols; k++) {
+        const x = k - 1, bow = (1 - x * x) * W * 0.08;
+        pos.set([d.x * (r + bow) + across.x * x * W * 0.5, d.y * (r + bow) + across.y * x * W * 0.5, d.z * (r + bow) + across.z * x * W * 0.5], v * 3);
+        nrm.set([d.x, d.y, d.z], v * 3);
+        uv.set([flip ? 1 - k / 2 : k / 2, 1 - t], v * 2);
+        if (s < S2 - 1 && k < cols - 1) idx.push(v, v + 1, v + cols, v + 1, v + cols + 1, v + cols);
+        v++;
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const m = new THREE.Mesh(g, mat);
+  m.renderOrder = 1;
+  return m;
 }
 
 interface Eye {
@@ -729,7 +831,7 @@ export class Character {
     const tie = toon(L.accentColor);
     let accR = 1.1;
     switch (L.hairStyle) {
-      case 'waves': {
+      case 'waves': case 'cards': {
         // Soft volume on top, swept from a side part, falling in waves down her back.
         // The hair stays on top of and behind the head: from the front, nothing shows
         // beside her jaw or under her chin.
@@ -744,8 +846,26 @@ export class Character {
           const a = -1.25 + i * (2.5 / 8);
           chain(Math.sin(a) * 0.95, -0.2, -Math.cos(a) * 0.75 - 0.4, 9, 0.3, 0.2, 0.29, 0, hairMat, 0, false);
         }
-        this.hair = new HairClumps(9, 44, hairMat);
-        this.chainRoot.add(this.hair.mesh);
+        if (L.hairStyle === 'cards') {
+          // Realistic waves: see-through strand cards over the locks, with a soft sheen that
+          // stretches across the strands. Toned to sit between the sculpted look and real hair.
+          const tex = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/hair-card.png`);
+          tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+          const cardMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(L.hairColor).multiplyScalar(1.4), map: tex, alphaTest: 0.25, alphaToCoverage: true,
+            side: THREE.DoubleSide, roughness: 0.9, metalness: 0, anisotropy: 0.2, anisotropyRotation: Math.PI / 2, specularIntensity: 0.12,
+          });
+          // Matte layers underneath too, so bright room light doesn't turn the hair silvery.
+          const under = hairMat.clone();
+          under.color.multiplyScalar(0.85); under.roughness = 0.92;
+          scalpMat.roughness = 0.92;
+          this.hair = new HairClumps(9, 44, under, cardMat);
+          this.chainRoot.add(this.hair.mesh, this.hair.cards!);
+          head.add(scalpCards(R, cardMat));
+        } else {
+          this.hair = new HairClumps(9, 44, hairMat);
+          this.chainRoot.add(this.hair.mesh);
+        }
         accR = 1.28;
         break;
       }
@@ -916,7 +1036,8 @@ export class Character {
     const R = P.headR, u = R / 0.42;
     for (const e of this.eyes) {
       const isLeft = e.side > 0;
-      const blink = THREE.MathUtils.clamp(((isLeft ? f.blinkL : f.blinkR) - 0.12) * 1.5, 0, 1);
+      // The tracker already reports how closed each eye is, calibrated to the person.
+      const blink = THREE.MathUtils.clamp(isLeft ? f.blinkL : f.blinkR, 0, 1);
       // A big smile squints the eyes a little.
       const squint = Math.max(0, f.smile - 0.45) * 0.35;
       e.lid.rotation.x = THREE.MathUtils.lerp(LID_OPEN, LID_SHUT, Math.max(blink, squint));

@@ -1,16 +1,73 @@
-// Puppet mode backdrops: a beach, a raft on the open ocean, and a starry night shore.
+// Puppet mode backdrops: a cartoon beach, a raft on the open ocean and a starry night shore,
+// plus two real beaches from 360° photos (CC0, Poly Haven; see public/scenes/CREDITS.txt).
 import * as THREE from 'three';
 
-export type SceneName = 'beach' | 'ocean' | 'night';
+export type SceneName = 'beach' | 'ocean' | 'night' | 'photo-sunny' | 'photo-sunrise';
 export const SCENES: { id: SceneName; label: string }[] = [
   { id: 'beach', label: 'Beach' }, { id: 'ocean', label: 'Raft' }, { id: 'night', label: 'Night' },
+  { id: 'photo-sunny', label: 'Sunny beach' }, { id: 'photo-sunrise', label: 'Sunrise' },
 ];
+
+/**
+ * A real place from a 360° photo. `face` is the photo column (0..1, left to right) she stands
+ * in front of; `sun` is where the sun or main light sits in the photo (column, row from the top),
+ * so she is lit from the same side. `height` is how high the photo's camera was above the sand.
+ */
+interface Photo { file: string; face: number; sun: [number, number]; height: number; sand: string }
+const PHOTOS: Partial<Record<SceneName, Photo>> = {
+  'photo-sunny': { file: `${import.meta.env.BASE_URL}scenes/sunny-beach.jpg`, face: 0.22, sun: [0.6, 0.356], height: 1.7, sand: '#c9ad7e' },
+  'photo-sunrise': { file: `${import.meta.env.BASE_URL}scenes/sunrise-beach.jpg`, face: 0.62, sun: [0.6, 0.486], height: 1.7, sand: '#b4895c' },
+};
+
+/**
+ * Wraps a 360° photo around the scene with its lower half laid flat as the ground, so she
+ * stands on the photographed sand. Each vertex keeps the direction it had on the sphere,
+ * and the photo is looked up along that direction (turned by `uTurn`).
+ */
+function photoDome(tex: THREE.Texture, height: number, face: number) {
+  const radius = 60, g = new THREE.SphereGeometry(radius, 96, 48);
+  const pos = g.attributes.position as THREE.BufferAttribute, dir = new Float32Array(pos.count * 3), v = new THREE.Vector3();
+  const y1 = (-height * 3) / 2;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    v.clone().normalize().toArray(dir, i * 3);
+    // Same flattening as three.js's ground-projected skybox: below the horizon the sphere
+    // bends into a floor `height` below the centre.
+    if (v.y < 0) {
+      const f = v.y < y1 ? -height / v.y : 1 - (v.y * v.y) / (3 * y1 * y1);
+      v.multiplyScalar(f);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+  }
+  g.setAttribute('dir', new THREE.BufferAttribute(dir, 3));
+  const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { uMap: { value: tex }, uTurn: { value: (face - 0.25) * Math.PI * 2 } },
+    vertexShader: `attribute vec3 dir; varying vec3 vDir;
+      void main(){ vDir = dir; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D uMap; uniform float uTurn; varying vec3 vDir;
+      void main(){
+        vec3 d = normalize(vDir);
+        float c = cos(uTurn), s = sin(uTurn);
+        d = vec3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+        vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.1415927 + 0.5);
+        gl_FragColor = texture2D(uMap, uv);
+        #include <colorspace_fragment>
+      }`,
+  }));
+  m.position.y = height;
+  m.renderOrder = -1;
+  m.frustumCulled = false;
+  return m;
+}
 
 interface Lighting { sky: number; ground: number; hemi: number; sun: number; sunI: number }
 const LIGHT: Record<SceneName | 'overlay', Lighting> = {
   beach: { sky: 0xffffff, ground: 0xe8c9a0, hemi: 1.25, sun: 0xfff2d6, sunI: 1.5 },
   ocean: { sky: 0xffffff, ground: 0x9fd8e8, hemi: 1.25, sun: 0xfff2d6, sunI: 1.5 },
   night: { sky: 0xaab4ff, ground: 0x4a3f78, hemi: 1.35, sun: 0xcfd8ff, sunI: 1.0 },
+  'photo-sunny': { sky: 0xffffff, ground: 0xe9d6b0, hemi: 1.2, sun: 0xfff4e0, sunI: 1.6 },
+  'photo-sunrise': { sky: 0xffdcc8, ground: 0xc9a080, hemi: 1.1, sun: 0xffb27a, sunI: 1.35 },
   overlay: { sky: 0xffffff, ground: 0xd8d0c8, hemi: 1.3, sun: 0xffffff, sunI: 1.4 },
 };
 
@@ -69,6 +126,10 @@ export class Backdrop {
   bobY = 0; bobRoll = 0;
   /** Height of the sea surface in the current scene. */
   get seaY() { return this.name === 'ocean' ? -0.14 : -0.03; }
+  /** The cartoon scenes have a 3D sea that fish can leap from and spray can rise off. */
+  get seaFx() { return !PHOTOS[this.name]; }
+  /** Colour of footprints, or null where there is no sand to step in. */
+  get sand(): string | null { return PHOTOS[this.name]?.sand ?? (this.name === 'night' ? '#5e5384' : this.name === 'beach' ? '#d2b06e' : null); }
 
   private sets: Record<SceneName, THREE.Group>;
   private bgs: Record<SceneName, THREE.Texture>;
@@ -84,8 +145,14 @@ export class Backdrop {
       beach: gradient([[0, '#4fb4ec'], [0.55, '#a9e0f7'], [0.75, '#e4f6fd'], [1, '#e4f6fd']]),
       ocean: gradient([[0, '#3fa6e6'], [0.55, '#a4dcf6'], [0.75, '#def3fc'], [1, '#def3fc']]),
       night: gradient([[0, '#070b2c'], [0.5, '#1e1a5c'], [0.75, '#4a3582'], [1, '#4a3582']]),
+      // Shown for a moment while a photo loads.
+      'photo-sunny': gradient([[0, '#3f8fe0'], [0.6, '#b6dcf5'], [1, '#e8dcc0']]),
+      'photo-sunrise': gradient([[0, '#7a86c8'], [0.6, '#f3b48f'], [1, '#d9b38c']]),
     };
-    this.sets = { beach: this.beach(), ocean: this.ocean(), night: this.night() };
+    this.sets = {
+      beach: this.beach(), ocean: this.ocean(), night: this.night(),
+      'photo-sunny': new THREE.Group(), 'photo-sunrise': new THREE.Group(),
+    };
     for (const g of Object.values(this.sets)) this.group.add(g);
 
     const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -99,11 +166,31 @@ export class Backdrop {
   }
 
   set(name: SceneName) {
+    if (!this.sets[name]) name = 'beach';
     this.name = name;
     for (const [k, g] of Object.entries(this.sets)) g.visible = k === name;
     this.background = this.bgs[name];
     this.light(name);
+    const photo = PHOTOS[name];
+    if (photo) {
+      // Light her from the side the sun is on in the photo.
+      const [u, row] = photo.sun, el = (0.5 - row) * Math.PI, az = (u - 0.5) * Math.PI * 2 - (photo.face - 0.25) * Math.PI * 2;
+      this.sun.position.set(Math.cos(el) * Math.cos(az), Math.max(0.25, Math.sin(el)), Math.cos(el) * Math.sin(az)).multiplyScalar(6);
+      const set = this.sets[name];
+      if (set.children.length === 0) {
+        new THREE.TextureLoader().load(photo.file, (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;   // no mipmaps: no seam where the photo wraps
+          set.add(photoDome(tex, photo.height, photo.face));
+          if (this.name === name) this.background = null;
+          this.onChange?.();
+        });
+      } else this.background = null;
+    } else this.sun.position.set(2.5, 4, 5);
   }
+
+  /** Called when a photo finishes loading, so the page can refresh the background. */
+  onChange: (() => void) | null = null;
 
   light(kind: SceneName | 'overlay') {
     const L = LIGHT[kind];

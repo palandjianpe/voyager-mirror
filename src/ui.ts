@@ -12,7 +12,7 @@ export function loadLook(): Look {
 const save = (l: Look) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch { /* private window */ } };
 
 const CHOICES = {
-  hairStyle: [['waves', 'Long waves'], ['puffs', 'Puffs'], ['long', 'Long'], ['ponytail', 'Ponytail'], ['braids', 'Braids'], ['bob', 'Bob']],
+  hairStyle: [['waves', 'Long waves'], ['cards', 'Realistic waves'], ['puffs', 'Puffs'], ['long', 'Long'], ['ponytail', 'Ponytail'], ['braids', 'Braids'], ['bob', 'Bob']],
   outfit: [['voyager', 'Island voyager'], ['shorts', 'Tunic and shorts'], ['dress', 'Dress']],
   accessory: [['none', 'None'], ['flower', 'Flower'], ['starfish', 'Starfish'], ['bow', 'Bow']],
   prop: [['oar', 'Oar'], ['none', 'Nothing']],
@@ -84,6 +84,7 @@ export function buildScenePanel(el: HTMLElement, current: () => SceneName, onPic
     el.appendChild(d);
   };
   render();
+  return render;
 }
 
 /** The Effects panel: an on/off switch and every effect with how to start it. */

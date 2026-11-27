@@ -68,6 +68,25 @@ class OneEuro3 {
   }
 }
 
+/**
+ * Turns the face model's raw blink score into how closed the eye is (0 open, 1 shut).
+ * Raw scores vary a lot between people: open eyes can rest at 0.05 or at 0.3 (glasses,
+ * looking down at a laptop), and closed eyes may only reach 0.4. So each eye learns its
+ * own resting level: it follows new lows quickly and creeps up only slowly, and a clear
+ * rise above it counts as closed.
+ */
+export class BlinkCalibrator {
+  private rest = 0.12;
+  update(raw: number): number {
+    const rate = raw < this.rest ? 0.25 : 0.004;
+    this.rest = Math.min(0.4, this.rest + (raw - this.rest) * rate);
+    const lo = this.rest + 0.1, hi = this.rest + 0.3;
+    const t = Math.min(1, Math.max(0, (raw - lo) / (hi - lo)));
+    return t * t * (3 - 2 * t);
+  }
+  reset() { this.rest = 0.12; }
+}
+
 const neutralFace = (): FaceState => ({
   blinkL: 0, blinkR: 0, jawOpen: 0, smile: 0.25, pucker: 0, mouthShift: 0,
   browUpL: 0, browUpR: 0, browDownL: 0, browDownR: 0, gazeX: 0, gazeY: 0,
@@ -98,19 +117,20 @@ export class Tracker {
   private poseMisses = 0;
   private faceMisses = 0;
   private rawFace = neutralFace();
+  private blinkCalL = new BlinkCalibrator(); private blinkCalR = new BlinkCalibrator();
   private rawQuat = new Quaternion();
   private m4 = new Matrix4();
 
   async init() {
-    const fileset = await FilesetResolver.forVisionTasks('/wasm');
+    const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
     const make = async (delegate: 'GPU' | 'CPU') => {
       this.pose = await PoseLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: '/models/pose_landmarker_full.task', delegate },
+        baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/pose_landmarker_full.task`, delegate },
         runningMode: 'VIDEO', numPoses: 1,
         minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
       });
       this.faceLm = await FaceLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: '/models/face_landmarker.task', delegate },
+        baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate },
         runningMode: 'VIDEO', numFaces: 1,
         outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
       });
@@ -125,6 +145,7 @@ export class Tracker {
 
   /** Forget the previous person, for example after switching camera. */
   reset() {
+    this.blinkCalL.reset(); this.blinkCalR.reset();
     this.f2d.forEach((f) => f.reset());
     this.f3d.forEach((f) => f.reset());
     this.crop.s = 0;
@@ -187,7 +208,7 @@ export class Tracker {
       const g = (k: string) => b[k] ?? 0;
       const r = this.rawFace;
       // The person's left side becomes the character's right side, like a mirror.
-      r.blinkR = g('eyeBlinkLeft'); r.blinkL = g('eyeBlinkRight');
+      r.blinkR = this.blinkCalR.update(g('eyeBlinkLeft')); r.blinkL = this.blinkCalL.update(g('eyeBlinkRight'));
       r.jawOpen = g('jawOpen');
       r.smile = (g('mouthSmileLeft') + g('mouthSmileRight')) / 2 - (g('mouthFrownLeft') + g('mouthFrownRight')) / 2;
       r.pucker = Math.max(g('mouthPucker'), g('mouthFunnel') * 0.8);
@@ -209,7 +230,7 @@ export class Tracker {
     // Light smoothing. Blinks stay snappy, everything else eases.
     const f = s.face, r = this.rawFace;
     for (const k of Object.keys(f) as (keyof FaceState)[]) {
-      const a = k === 'blinkL' || k === 'blinkR' || k === 'jawOpen' ? 0.65 : 0.4;
+      const a = k === 'blinkL' || k === 'blinkR' ? 0.8 : k === 'jawOpen' ? 0.65 : 0.4;
       f[k] += (r[k] - f[k]) * a;
     }
     if (s.hasFace) s.headQuat.slerp(this.rawQuat, 0.45);

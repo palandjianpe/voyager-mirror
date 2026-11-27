@@ -1,0 +1,5 @@
+hair-card.png
+  Made from "Hair Alphas For Days - hair38.png" by OwlishMedia (OpenGameArt.org),
+  released under CC0 1.0 (public domain):
+  https://opengameart.org/content/hair-alphas-for-days-hair38png
+  Cropped, recoloured white and resized for use as a hair-card texture.

@@ -36,6 +36,10 @@ export interface FxContext {
   upper: boolean;
   scene: SceneName;
   seaY: number;
+  /** The scene has a 3D sea for fish and spray. */
+  seaFx: boolean;
+  /** Footprint colour, or null where there is no sand. */
+  sand: string | null;
   camera: THREE.Camera;
   viewportH: number;
 }
@@ -477,8 +481,8 @@ export class Effects {
       if (puppet) {
         // Jumping in puppet mode also makes the sea spray and a fish leap.
         if (rig.landed) {
-          if (this.fire('spray', 0.5)) this.seaSpray(ctx);
-          if (this.fishState.t < 0 && this.fire('fish', 1)) {
+          if (ctx.seaFx && this.fire('spray', 0.5)) this.seaSpray(ctx);
+          if (ctx.seaFx && this.fishState.t < 0 && this.fire('fish', 1)) {
             const fs = this.fishState;
             fs.t = 0; fs.i = (fs.i + 1) % this.fish.length; fs.dir = Math.random() < 0.5 ? 1 : -1;
             fs.x = rnd(2.6) - fs.dir * 0.9; fs.z = -7 - Math.random() * 3; fs.sea = ctx.seaY;
@@ -486,7 +490,8 @@ export class Effects {
           }
         }
         // Footprints on sand.
-        if (ctx.scene !== 'ocean') {
+        const sand = ctx.sand;
+        if (sand) {
           [p.ankleL, p.ankleR].forEach((an, i) => {
             if (!this.printsLast[i]) { this.printsLast[i] = an.clone(); return; }
             if (an.y < P.ankleH + 0.025 && Math.abs(an.x - this.printsLast[i].x) > 0.18) {
@@ -494,7 +499,7 @@ export class Effects {
               const pr = this.prints[this.nextPrint]; this.nextPrint = (this.nextPrint + 1) % this.prints.length;
               pr.t = 0; pr.m.visible = true; pr.m.position.set(an.x + (i ? -0.01 : 0.01), 0.004, an.z + 0.06);
               pr.m.scale.x = (i ? -0.62 : 0.62);
-              pr.mat.color.set(ctx.scene === 'night' ? '#5e5384' : '#d2b06e');
+              pr.mat.color.set(sand);
               this.fire('footprints', 3);
             }
           });

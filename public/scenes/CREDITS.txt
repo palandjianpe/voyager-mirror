@@ -1,0 +1,5 @@
+Photo panoramas from Poly Haven (https://polyhaven.com), released under CC0 1.0 (public domain).
+Re-encoded without metadata; otherwise unchanged.
+
+sunny-beach.jpg    "Spiaggia di Mondello" by Andreas Mischok   https://polyhaven.com/a/spiaggia_di_mondello
+sunrise-beach.jpg  "Umhlanga Sunrise" by Greg Zaal              https://polyhaven.com/a/umhlanga_sunrise

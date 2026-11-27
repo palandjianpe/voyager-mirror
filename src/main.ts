@@ -26,6 +26,7 @@ const persp = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 50); ortho.position.set(0, 0, 10);
 
 const backdrop = new Backdrop(hemi, sun);
+backdrop.onChange = () => { if (mode === 'puppet') scene.background = backdrop.background; };
 const look = loadLook();
 const character = new Character(look);
 const effects = new Effects();
@@ -88,7 +89,8 @@ function setFraming(f: Framing) {
   resize();
 }
 function setScene(s: SceneName) {
-  backdrop.set(s); store.set('vm-scene', s);
+  backdrop.set(s); store.set('vm-scene', backdrop.name);
+  renderScenePanel?.();
   if (mode === 'puppet') scene.background = backdrop.background;
 }
 
@@ -157,7 +159,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => (b.on
 document.querySelectorAll<HTMLButtonElement>('[data-frame]').forEach((b) => (b.onclick = () => setFraming(b.dataset.frame as Framing)));
 
 buildDressPanel($('panel-dress'), look, (l) => character.setLook(l));
-buildScenePanel($('panel-scene'), () => backdrop.name, setScene);
+const renderScenePanel = buildScenePanel($('panel-scene'), () => backdrop.name, setScene);
 
 $('btnPhoto').onclick = () => { capture.photo(); const f = $('flash'); f.classList.remove('go-flash'); void f.offsetWidth; f.classList.add('go-flash'); };
 $('btnRecord').onclick = () => { capture.toggleRecord(); };
@@ -254,7 +256,7 @@ function frame(now: number) {
   character.group.visible = visible;
   if (visible) character.apply(pose, face, dt);
   effects.update(dt, visible ? pose : null, rig, {
-    face: s.hasFace ? s.face : null, mode, upper: framing === 'upper', scene: backdrop.name, seaY: backdrop.seaY,
+    face: s.hasFace ? s.face : null, mode, upper: framing === 'upper', scene: backdrop.name, seaY: backdrop.seaY, seaFx: backdrop.seaFx, sand: backdrop.sand,
     camera: mode === 'puppet' ? persp : ortho, viewportH: stageH,
   });
   backdrop.update(t);

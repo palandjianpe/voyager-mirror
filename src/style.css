@@ -66,6 +66,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; }
 .scene[data-scene="beach"] { background: linear-gradient(#6cc6f2 0 45%, #2aa6cf 45% 66%, #f3dba0 66%); }
 .scene[data-scene="ocean"] { background: linear-gradient(#6cc6f2 0 42%, #1c8fc2 42% 100%); }
 .scene[data-scene="night"] { background: linear-gradient(#0c1440 0 45%, #14506e 45% 66%, #6b5a86 66%); }
+.scene[data-scene="photo-sunny"] { background: url(/scenes/sunny-beach-thumb.jpg) center / cover; }
+.scene[data-scene="photo-sunrise"] { background: url(/scenes/sunrise-beach-thumb.jpg) center / cover; }
 .row { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-weight: 700; flex-wrap: wrap; }
 .row select { font: inherit; padding: 8px 10px; border-radius: 12px; border: 2px solid #e3d8c0; background: #fff; max-width: 100%; flex: 1 1 200px; min-width: 0; }
 .row.check { font-weight: 600; }
